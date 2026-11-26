@@ -14,14 +14,19 @@ const _apiBaseUrl = String.fromEnvironment('DATAPLUS_API_BASE_URL');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final apiUri = Uri.tryParse(_apiBaseUrl);
+
   final supabaseUri = Uri.tryParse(_supabaseUrl);
+
+  final parsedApiUri = _apiBaseUrl.isEmpty ? null : Uri.tryParse(_apiBaseUrl);
+
+  final apiUri = parsedApiUri != null && _isSecureApiUri(parsedApiUri)
+      ? parsedApiUri
+      : null;
+
   if (_supabaseUrl.isEmpty ||
       _supabasePublicKey.isEmpty ||
       supabaseUri == null ||
-      !_isSecureApiUri(supabaseUri) ||
-      apiUri == null ||
-      !_isSecureApiUri(apiUri)) {
+      !_isSecureApiUri(supabaseUri)) {
     runApp(const DataPlusApp(configurationReady: false));
     return;
   }
@@ -31,6 +36,7 @@ Future<void> main() async {
       url: _supabaseUrl,
       publishableKey: _supabasePublicKey,
     );
+
     runApp(DataPlusApp(configurationReady: true, apiBaseUri: apiUri));
   } catch (_) {
     runApp(const DataPlusApp(configurationReady: false));
@@ -39,6 +45,7 @@ Future<void> main() async {
 
 bool _isSecureApiUri(Uri uri) {
   if (uri.scheme == 'https' && uri.hasAuthority) return true;
+
   final host = uri.host;
   return uri.scheme == 'http' &&
       uri.hasAuthority &&
@@ -72,8 +79,8 @@ class DataPlusApp extends StatelessWidget {
           border: OutlineInputBorder(),
         ),
       ),
-      home: configurationReady && apiBaseUri != null
-          ? const _AuthenticationGate()
+      home: configurationReady
+          ? _AuthenticationGate(apiBaseUri: apiBaseUri)
           : const _ConfigurationScreen(),
     );
   }
@@ -97,15 +104,15 @@ class _ConfigurationScreen extends StatelessWidget {
                 children: [
                   const _BrandMark(),
                   const SizedBox(height: 28),
-                  Text(
+                  const Text(
                     'Configuration requise',
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Fournissez SUPABASE_URL, SUPABASE_ANON_KEY et '
-                    'DATAPLUS_API_BASE_URL au lancement. Utilisez HTTPS '
-                    'pour toute adresse autre que localhost.',
+                  const Text(
+                    'Fournissez SUPABASE_URL et SUPABASE_ANON_KEY '
+                    'au lancement. Utilisez HTTPS pour toute adresse '
+                    'autre que localhost.',
                   ),
                 ],
               ),
@@ -118,7 +125,9 @@ class _ConfigurationScreen extends StatelessWidget {
 }
 
 class _AuthenticationGate extends StatefulWidget {
-  const _AuthenticationGate();
+  const _AuthenticationGate({this.apiBaseUri});
+
+  final Uri? apiBaseUri;
 
   @override
   State<_AuthenticationGate> createState() => _AuthenticationGateState();
@@ -131,10 +140,13 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
   @override
   void initState() {
     super.initState();
+
     _subscription = Supabase.instance.client.auth.onAuthStateChange.listen((
       state,
     ) {
-      if (mounted) setState(() => _session = state.session);
+      if (mounted) {
+        setState(() => _session = state.session);
+      }
     });
   }
 
@@ -146,9 +158,20 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
 
   @override
   Widget build(BuildContext context) {
-    final apiBaseUri = Uri.parse(_apiBaseUrl);
     final session = _session;
-    if (session == null) return const _SignInScreen();
+
+    if (session == null) {
+      return const _SignInScreen();
+    }
+
+    final apiBaseUri = widget.apiBaseUri;
+
+    if (apiBaseUri == null) {
+      return _BackendUnavailableScreen(
+        signOut: () => Supabase.instance.client.auth.signOut(),
+      );
+    }
+
     return _DevicePeerScreen(
       userId: session.user.id,
       apiBaseUri: apiBaseUri,
@@ -167,6 +190,7 @@ class _SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<_SignInScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
+
   bool _busy = false;
   String? _error;
 
@@ -182,17 +206,24 @@ class _SignInScreenState extends State<_SignInScreen> {
       _busy = true;
       _error = null;
     });
+
     try {
       await Supabase.instance.client.auth.signInWithPassword(
         email: _email.text.trim(),
         password: _password.text,
       );
     } on AuthException {
-      if (mounted) setState(() => _error = 'Identifiants invalides.');
+      if (mounted) {
+        setState(() => _error = 'Identifiants invalides.');
+      }
     } catch (_) {
-      if (mounted) setState(() => _error = 'Connexion impossible. Réessayez.');
+      if (mounted) {
+        setState(() => _error = 'Connexion impossible. Réessayez.');
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -230,7 +261,9 @@ class _SignInScreenState extends State<_SignInScreen> {
                     controller: _password,
                     obscureText: true,
                     autofillHints: const [AutofillHints.password],
-                    onSubmitted: (_) => _busy ? null : _signIn(),
+                    onSubmitted: (_) {
+                      if (!_busy) _signIn();
+                    },
                     decoration: const InputDecoration(
                       labelText: 'Mot de passe',
                     ),
@@ -259,6 +292,51 @@ class _SignInScreenState extends State<_SignInScreen> {
   }
 }
 
+class _BackendUnavailableScreen extends StatelessWidget {
+  const _BackendUnavailableScreen({required this.signOut});
+
+  final Future<void> Function() signOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('DataPlus'),
+        actions: [
+          IconButton(
+            onPressed: signOut,
+            icon: const Icon(Icons.logout),
+            tooltip: 'Se déconnecter',
+          ),
+        ],
+      ),
+      body: const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off, size: 56),
+              SizedBox(height: 16),
+              Text(
+                'Service temporairement indisponible',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 10),
+              Text(
+                'La gestion des appareils sera disponible '
+                'dès que le serveur DataPlus sera connecté.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DevicePeerScreen extends StatefulWidget {
   const _DevicePeerScreen({
     required this.userId,
@@ -279,18 +357,24 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
     apiBaseUri: widget.apiBaseUri,
     accessTokenProvider: () async {
       final token = Supabase.instance.client.auth.currentSession?.accessToken;
+
       if (token == null || token.isEmpty) {
         throw StateError('A current Supabase session is required.');
       }
+
       return token;
     },
   );
+
   late final WireGuardFlutterInterface _tunnel = WireGuardFlutter.instance;
+
   final _deviceName = TextEditingController(text: 'DataPlus mobile');
+
   List<String> _deviceIds = const [];
   String? _selectedDeviceId;
   DevicePeerSession? _session;
   Timer? _pollTimer;
+
   bool _busy = false;
   String? _message;
   String? _error;
@@ -312,15 +396,22 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
   Future<void> _loadDevices() async {
     try {
       final devices = await _client.enrolledDeviceIds(widget.userId);
+
       if (!mounted) return;
+
       setState(() {
         _deviceIds = devices;
         _selectedDeviceId = devices.isEmpty ? null : devices.last;
       });
-      if (_selectedDeviceId != null) await _restoreSession();
+
+      if (_selectedDeviceId != null) {
+        await _restoreSession();
+      }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Impossible de lire les identités locales.');
+        setState(() {
+          _error = 'Impossible de lire les identités locales.';
+        });
       }
     }
   }
@@ -328,26 +419,32 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
   Future<void> _restoreSession() async {
     final deviceId = _selectedDeviceId;
     if (deviceId == null) return;
+
     try {
       final session = await _client.restoreSession(
         userId: widget.userId,
         deviceId: deviceId,
       );
+
       if (!mounted) return;
+
       setState(() {
         _session = session;
         _error = null;
       });
+
       _startPolling();
     } on HttpException {
       if (mounted) {
-        setState(
-          () => _error = 'La session n’est pas accessible sur le serveur.',
-        );
+        setState(() {
+          _error = 'La session n’est pas accessible sur le serveur.';
+        });
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'La restauration de session a échoué.');
+        setState(() {
+          _error = 'La restauration de session a échoué.';
+        });
       }
     }
   }
@@ -356,14 +453,18 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
     if (!Platform.isAndroid && !Platform.isIOS) {
       throw StateError('Le VPN natif est disponible sur Android et iOS.');
     }
+
     final deviceId = await _client.enrollDevice(
       userId: widget.userId,
       deviceName: _deviceName.text.trim(),
       platform: Platform.isAndroid ? 'android' : 'ios',
       idempotencyKey: newIdempotencyKey(),
     );
+
     final devices = await _client.enrolledDeviceIds(widget.userId);
+
     if (!mounted) return;
+
     setState(() {
       _deviceIds = devices;
       _selectedDeviceId = deviceId;
@@ -380,8 +481,13 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
             : 'Cette plateforme ne prend pas en charge le VPN natif.',
       );
     }
+
     final deviceId = _selectedDeviceId;
-    if (deviceId == null) throw StateError('Enrôlez d’abord cet appareil.');
+
+    if (deviceId == null) {
+      throw StateError('Enrôlez d’abord cet appareil.');
+    }
+
     final session = await _client.connect(
       userId: widget.userId,
       deviceId: deviceId,
@@ -390,62 +496,78 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
       providerBundleIdentifier: '',
       tunnel: _tunnel,
     );
+
     if (!mounted) return;
+
     setState(() {
       _session = session;
       _message = 'Tunnel confirmé par une poignée de main WireGuard récente.';
     });
+
     _startPolling();
   });
 
   Future<void> _disconnect() => _run(() async {
     final session = _session;
     if (session == null) return;
+
     await _client.disconnect(sessionId: session.id, tunnel: _tunnel);
+
     final updated = await _client.restoreSession(
       userId: widget.userId,
       deviceId: session.deviceId,
     );
+
     if (!mounted) return;
+
     setState(() {
       _session = updated;
       _message = updated?.status == 'stopping'
           ? 'Arrêt demandé; confirmation passerelle en attente.'
           : 'Session arrêtée.';
     });
+
     _startPolling();
   });
 
   Future<void> _revoke() => _run(() async {
     final deviceId = _selectedDeviceId;
     if (deviceId == null) return;
+
     final session = _session;
+
     if (session != null) {
       await _client.disconnect(sessionId: session.id, tunnel: _tunnel);
     }
+
     await _client.revokeDevice(deviceId, widget.userId);
+
     if (!mounted) return;
+
     setState(() {
       _deviceIds = _deviceIds.where((id) => id != deviceId).toList();
       _selectedDeviceId = _deviceIds.isEmpty ? null : _deviceIds.last;
       _session = null;
       _message = 'Appareil révoqué; sa clé locale a été effacée.';
     });
+
     _startPolling();
   });
 
   Future<void> _signOut() async {
     try {
       final session = _session;
+
       if (session != null && session.status != 'stopped') {
         await _client.disconnect(sessionId: session.id, tunnel: _tunnel);
       }
+
       await widget.signOut();
     } catch (_) {
       if (mounted) {
-        setState(
-          () => _error = 'Déconnexion VPN impossible; session conservée.',
-        );
+        setState(() {
+          _error = 'Déconnexion VPN impossible; session conservée.';
+        });
       }
     }
   }
@@ -455,42 +577,60 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
       _busy = true;
       _error = null;
     });
+
     try {
       await action();
     } on StateError catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(() => _error = error.message);
+      }
     } on HttpException catch (error) {
       if (mounted) {
         setState(() => _error = 'API inaccessible (${error.message}).');
       }
     } on TimeoutException {
       if (mounted) {
-        setState(() => _error = 'Aucune poignée de main WireGuard confirmée.');
+        setState(() {
+          _error = 'Aucune poignée de main WireGuard confirmée.';
+        });
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Opération échouée; aucun secret journalisé.');
+        setState(() {
+          _error = 'Opération échouée; aucun secret journalisé.';
+        });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
   void _startPolling() {
     _pollTimer?.cancel();
+
     if (_session == null || _session!.status == 'stopped') return;
+
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (_busy || !mounted || _session == null) return;
+
       try {
         final updated = await _client.getSession(_session!.id);
+
         if (!mounted) return;
+
         setState(() => _session = updated);
+
         if (updated.status == 'stopped' || updated.status == 'failed') {
           _pollTimer?.cancel();
         }
       } catch (_) {
         if (!mounted) return;
-        setState(() => _error = 'État de session temporairement indisponible.');
+
+        setState(() {
+          _error = 'État de session temporairement indisponible.';
+        });
       }
     });
   }
@@ -508,6 +648,7 @@ class _DevicePeerScreenState extends State<_DevicePeerScreen> {
   @override
   Widget build(BuildContext context) {
     final session = _session;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('DataPlus'),
