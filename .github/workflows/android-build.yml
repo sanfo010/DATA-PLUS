@@ -44,7 +44,8 @@ jobs:
         run: |
           flutter build apk --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=DATAPLUS_API_BASE_URL="https://data-plus-api.onrender.com/api/v1"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
