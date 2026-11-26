@@ -1,0 +1,5 @@
+package com.dataplus.dataplus_mobile
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

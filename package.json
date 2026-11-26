@@ -1,0 +1,35 @@
+{
+  "name": "dataplus",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:backend": "node --env-file-if-exists=.env.server.local --import tsx --watch server/src/index.ts",
+    "start:backend": "node --env-file-if-exists=.env.server.local .server-dist/index.js",
+    "build": "node scripts/build.mjs",
+    "test:backend": "node --import tsx --test server/test/api.test.ts server/test/supabase-auth.test.ts server/test/gateway.test.ts server/test/lab.test.ts server/test/device-peers.test.ts server/test/device-peer-sessions.test.ts server/test/lab-persistence.test.ts server/test/config.test.ts server/test/wsl-device-peers.integration.test.ts",
+    "test:phase9:device-peer-staging": "node scripts/test-phase9-device-peer-persistence.mjs",
+    "test:wsl-lab": "node --import tsx --test server/test/wsl-lab.integration.test.ts",
+    "test:wsl-device-peers": "set DATAPLUS_WG_DEVICE_INTEGRATION_TEST=1&& node --import tsx --test server/test/wsl-device-peers.integration.test.ts",
+    "check:wg-physical-readiness": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-wg-physical-readiness.ps1",
+    "test:wg-lab": "wsl --distribution Ubuntu -- bash /mnt/c/Users/hp/Downloads/DATAPLUS/scripts/test-wg-lab.sh",
+    "test:phase6:staging": "node scripts/phase6-staging-smoke-test.mjs",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
+    "helmet": "^8.3.0"
+  }
+}
